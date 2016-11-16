@@ -25,7 +25,7 @@ ss <- gsub("[[:punct:]]"," ", ss)
 ss <- gsub("bobsnewline", "", ss)
 
 #turn status into corpus
-ss <-  Corpus(VectorSource(ss))
+#ss <-  Corpus(VectorSource(ss))
 
 #create dtm1 for status
 dtm1 <- create_matrix(ss, language="english", removeNumbers=TRUE, weighting=weightTfIdf)
@@ -35,7 +35,10 @@ dtm1<- removeSparseTerms(dtm1, .99)
 freqs <- as.data.frame(inspect(dtm1))
 
 #join the frequency table with userid
-t2[2:8000] <- freqs[1:7999]
+
+t2 <- as.data.frame(fb_s$user_id)
+colnames(t2) <- c("userid")
+t2[2:8000] <- freqs[1:7998]
 
 #we dont need userid in the next step, so remove them
 t3 <- t2[3:8000]
@@ -43,6 +46,7 @@ t3 <- t2[3:8000]
 #load term table from another journal paper
 topic2000 <- read.csv("2000.csv", header = F, fill=F,row.names=NULL)
 topic2001 <- t(topic2000)
+
 
 
 #find the word frequency in each topic according to the words on the term table
@@ -56,6 +60,8 @@ for(i in 1:2000) {
                 p4[topicCollumn] <- as.data.frame(rowSums(o1))
         }
 }
+
+
 
 #add userid to p4, t6 is a table with 1977 topic scores for each user
 
@@ -83,8 +89,8 @@ swl_topic  <- merge(agg_swl, swl_topic, by.x="userid", by.y="userid", all.x=TRUE
 swl_topic <- swl_topic[!duplicated(swl_topic),]
 
 #merge with LIWC data
-liwc <- read.csv("liwc.csv", header = T, fill=TRUE,row.names=NULL)
-swl_topic2 <- merge(swl_topic, liwc, by.x="userid", by.y="userid", all.x=TRUE)
+#liwc <- read.csv("liwc.csv", header = T, fill=TRUE,row.names=NULL)
+#swl_topic2 <- merge(swl_topic, liwc, by.x="userid", by.y="userid", all.x=TRUE)
 
 
 #load sentiment score
@@ -96,18 +102,18 @@ swl_senti_emo2 <- swl_senti_emo[keeps]
 
 
 #merge topic, liwc with sentiment score
-swl_topic2 <- merge(swl_topic2, swl_senti_emo2, by.x="userid", by.y="user_id", all.x=TRUE)
+swl_topic2 <- merge(swl_topic, swl_senti_emo2, by.x="userid", by.y="user_id", all.x=TRUE)
 swl_topic2$swl.x <- NULL
 swl_topic2$swl <- unlist(swl_topic2$swl)
 
 
 #swl_topic2[,5:2046]<-scale(swl_topic2[,5:2046]) no need to do scaling in RF
-swl_topic2[,2046] <- NULL
+#swl_topic2[,2046] <- NULL
 
 library(glmnet)
 ##2000 topics feature selection 
 y = swl_topic2$swl
-x = swl_topic2[5:1981]
+x = swl_topic2[5:1982]
 x <- as.matrix(x)
 cv <- cv.glmnet(x,y,alpha=1)
 
@@ -120,23 +126,21 @@ c <- coef(cv, s = "lambda.min")
 cv_score <- as.matrix(unlist(c))
 
 #setting trainset and testset
+
+set.seed(123)
 t5 <- swl_topic2
 ind = sample(2, nrow(t5), replace = TRUE, prob=c(0.7, 0.3))
 trainset1 = t5[ind == 1,]
 testset1 = t5[ind == 2,]
 
 
-#let's see the ACC of the trainset
-#trainset1$Prediction1 <- predict(fit1,OOB=TRUE)
-#cor(trainset1$Prediction1,trainset1$swl)
-
 #0.358
 
 #we can try lasso prediction # 0.31
 library(glmnet)
-set.seed(999)
-y = trainset$swl
-x = trainset[5:2046]
+# set.seed(999)
+y = trainset1$swl
+x = trainset1[5:2045]
 x <- as.matrix(x)
 cv1 <- cv.glmnet(x,y,alpha=1)
 
@@ -145,15 +149,15 @@ plot(cv1)
 cv1$lambda.min
 c1 <- coef(cv1, s = "lambda.min")
 
-testsetx <- as.matrix(testset[5:2046])
+testsetx <- as.matrix(testset1[5:2045])
 pred2 <- predict(cv1,testsetx,s=c(0.1,0.05,0.01))
-cor.test(pred2[,2], testset$swl)
+cor.test(pred2[,2], testset1$swl)
 
-#0.24
+#0.26
 
 library(party)
 #affect+LDA topic
-set.seed(678)
+
 fit1 <- cforest(swl ~  senti_all2 
                 + topic714+topic48+topic205+topic605+topic253+topic1234+topic656+topic151+topic1186+topic217+topic1835
                 +topic700+topic173+topic1915+topic15+topic939+topic1071+topic1283+topic1859+topic1862+topic111+topic1834
@@ -171,7 +175,7 @@ fit1 <- cforest(swl ~  senti_all2
 testset1$Prediction1 <- predict(fit1, testset1,OOB=TRUE)
 cor(testset1$Prediction1,testset1$swl)
 
-#0.39
+#0.3983916  0.3952412 0.3905822  0.4003738
 
 
 #only LIWC
@@ -258,124 +262,258 @@ for (i in seq(1,5)){
 #0.40, 0.39 0.37, 0.42, 0.35 ,0.38 ,0.34 ,0.38 ,0.41, 0.36
 
 
-t5$Prediction1 <- predict(fit1, t5,OOB=TRUE)
-cor(t5$Prediction1,t5$swl)
+#predictive validity
+#criteria data merge with testset1  789 cases
 
-#regression table 4
+#regression table 4 
 #hierarchical regression
+#FB activities, 57 cases
 act <- read.csv("freq.csv", header = TRUE)
 swl<- read.csv("swl.csv", header = TRUE)
 act_objective <- merge(act, swl, by.x="userid", by.y="userid", all.x=TRUE)
 act_objective <- act_objective[complete.cases(act_objective),]
 act_objective <- act_objective[-11]
-act_objective <- merge(act_objective, t5, by.x="userid", by.y="userid", all.x=TRUE)
+#merge table with a separate testset
+act_objective <- merge(act_objective, testset1, by.x="userid", by.y="userid", all.x=TRUE)
 act_objective <- act_objective[complete.cases(act_objective),]
 
 #predict number of likes
 fit <- lm(n_like~ swl, data=act_objective)
 summary(fit)
 #0.18
+#0.36
 
 fit <- lm(n_like~ swl+senti_all2, data=act_objective)
 summary(fit)
 #0.18
+#0.36
 
 fit <- lm(n_like~ Prediction1, data=act_objective)
 summary(fit)
 #0.26
+#0.31
 
-fit <- lm(n_like~ Prediction1+affect, data=act_objective)
+fit <- lm(n_like~ Prediction1+senti_all2, data=act_objective)
 summary(fit)
 #0.28
+#0.34
 
 # ngroup
 fit <- lm(n_group~ swl, data=act_objective)
 summary(fit)
-#0.03*
+#0.06
 
 #predict number of FB groups
 fit <- lm(n_group~ swl+senti_all2, data=act_objective)
 summary(fit)
-#0.04
+#0.07 NG
 
 fit <- lm(n_group~ Prediction1, data=act_objective)
 summary(fit)
-#0.13
+#0.14 
 
-fit <- lm(n_group~ Prediction1+affect, data=act_objective)
+fit <- lm(n_group~ Prediction1+senti_all2, data=act_objective)
 summary(fit)
-#0.14
+#0.15
 
 #n_diads
 fit <- lm(n_diads~ swl, data=act_objective)
 summary(fit)
-#0.06NG
+#0.27
 
 fit <- lm(n_diads~ swl+senti_all2, data=act_objective)
 summary(fit)
-#0.07
+#0.29
 
 fit <- lm(n_diads~ Prediction1, data=act_objective)
 summary(fit)
-#0.09
+#0.23
 
-fit <- lm(n_diads~ Prediction1+affect, data=act_objective)
+fit <- lm(n_diads~ Prediction1+senti_all2, data=act_objective)
 summary(fit)
-#0.10
+#0.24
 
-#depression   
+#depression   116 cases
 dep <- read.csv("dep.csv", header = TRUE)
 dep$sum <- rowSums(dep[8:27])
 dep <- dep[!duplicated(dep$userid), ]
 dep1 <- dep[,c("userid","sum")]
-act_objective <- merge(t5, dep1, by.x="userid", by.y="userid", all.x=TRUE)
+act_objective <- merge(testset1, dep1, by.x="userid", by.y="userid", all.x=TRUE)
 act_objective <- act_objective[complete.cases(act_objective),]
 
 #predict depression score with SWL
 fit <- lm(sum~ swl, data=act_objective)
 summary(fit)
 #0.08
+#0.01 NG
 
 ##predict depression score with SWL+affect
 fit <- lm(sum~ swl+senti_all2, data=act_objective)
 summary(fit)
 #0.09
+#0.03 NG
 
 ##predict depression score with machine SWL
 fit <- lm(sum~ Prediction1, data=act_objective)
 summary(fit)
 #0.10
+#0.06 p<0.01
 
 ##predict depression score with machine SWL+affect
-fit <- lm(sum~ Prediction1+affect, data=act_objective)
+fit <- lm(sum~ Prediction1+senti_all2, data=act_objective)
 summary(fit)
 #0.10
+#0.06  p < 0.05
+
+fit <- lm(sum~ Prediction1+ swl + senti_all2, data=act_objective)
+summary(fit)
+#0.06  NG
 
 
-#PILL
+#PILL #275 cases
 pill <- read.csv("pill.csv", header = TRUE)
-act_objective <- merge(t5, pill, by.x="userid", by.y="userid", all.x=TRUE)
+act_objective <- merge(testset1, pill, by.x="userid", by.y="userid", all.x=TRUE)
 act_objective <- act_objective[complete.cases(act_objective),]
 
 #predict PILL with SWL
 fit <- lm(PILL~ swl, data=act_objective)
 summary(fit)
-#0.08
+#0.09
 
 ##predict PILL with SWL+affect
 fit <- lm(PILL~ swl+senti_all2, data=act_objective)
 summary(fit)
-#0.08
+#0.09
 
 ##predict PILL with machine SWL
 fit <- lm(PILL~ Prediction1, data=act_objective)
 summary(fit)
-#0.06
+#0.07
 
 ###predict PILL with machine SWL+affect
-fit <- lm(PILL~ Prediction1+affect, data=act_objective)
+fit <- lm(PILL~ Prediction1+ senti_all2, data=act_objective)
 summary(fit)
-#0.06
+#0.08
+
+#combining machine predicted subjective well-being profile and self-reported SWL can better predict life outcome
+##predict PILL with self-reported SWL and machine reported SWL
+fit <- lm(PILL~ Prediction1+ swl + senti_all2, data=act_objective)
+summary(fit)
+#0.12
+
+#self-disclosure #317
+sdfm <- read.csv("sdfm.csv", header = TRUE)
+
+act_objective <- merge(testset1, sdfm, by.x="userid", by.y="userid", all.x=TRUE)
+act_objective <- act_objective[complete.cases(act_objective),]
+act_objective$sd_score <- as.numeric(act_objective$sd_score)
+
+#predict self-disclosure with SWL
+fit <- lm(sd_score ~ swl, data=act_objective)
+summary(fit)
+#0.013 NG
+
+##predict self-disclosure with SWL+affect
+fit <- lm(sd_score~ swl+senti_all2, data=act_objective)
+summary(fit)
+#0.02  p <0.05
+
+##predict self-disclosure with machine SWL
+fit <- lm(sd_score~ Prediction1, data=act_objective)
+summary(fit)
+#0.02  p<0.05
+
+###predict self-disclosure with machine SWL+affect
+fit <- lm(sd_score~ Prediction1+ senti_all2, data=act_objective)
+summary(fit)
+#0.02  p<0.05
+
+#predict fair-mindedness 
+act_objective$fm_score <- as.numeric(act_objective$fm_score)
+#predict self-disclosure with SWL
+fit <- lm(fm_score ~ swl, data=act_objective)
+summary(fit)
+#0.04
+
+##predict self-disclosure with SWL+affect
+fit <- lm(fm_score~ swl+senti_all2, data=act_objective)
+summary(fit)
+#0.05
+
+##predict self-disclosure with machine SWL
+fit <- lm(fm_score~ Prediction1, data=act_objective)
+summary(fit)
+#0.04
+
+###predict self-disclosure with machine SWL+affect
+fit <- lm(sd_score~ Prediction1+ senti_all2, data=act_objective)
+summary(fit)
+#0.02 *
 
 
+##big five #739
+big5 <- read.csv("big5.csv", header = TRUE)
+act_objective <- merge(testset1, big5, by.x="userid", by.y="userid", all.x=TRUE)
+act_objective <- act_objective[complete.cases(act_objective),]
 
+#predict ope with SWL
+fit <- lm(ope~ swl, data=act_objective)
+summary(fit)
+#0.01   **
+
+##predict ext with SWL+affect
+fit <- lm(ext ~ swl+senti_all2, data=act_objective)
+summary(fit)
+#0.02  **
+
+##predict ope with machine SWL
+fit <- lm(ope ~ Prediction1, data=act_objective)
+summary(fit)
+#0.01  NG
+
+###predict ope with machine SWL+affect
+fit <- lm(ext ~ Prediction1+ senti_all2, data=act_objective)
+summary(fit)
+#0.01  NG
+
+#predict neu 
+#predict ope with SWL
+fit <- lm(neu~ swl, data=act_objective)
+summary(fit)
+#0.26  
+
+##predict ope with SWL+affect
+fit <- lm(neu ~ swl+senti_all2, data=act_objective)
+summary(fit)
+#0.26  
+
+##predict ope with machine SWL
+fit <- lm(neu ~ Prediction1, data=act_objective)
+summary(fit)
+#0.06  
+
+###predict ope with machine SWL+affect
+fit <- lm(neu ~ Prediction1+ senti_all2, data=act_objective)
+summary(fit)
+#0.06  
+
+##predit agr
+#predict agr with SWL
+fit <- lm(agr~ swl, data=act_objective)
+summary(fit)
+#0.10  
+
+##predict agr with SWL+affect
+fit <- lm(agr ~ swl+senti_all2, data=act_objective)
+summary(fit)
+#0.13
+
+##predict agr with machine SWL
+fit <- lm(agr ~ Prediction1, data=act_objective)
+summary(fit)
+#0.06  *
+
+###predict agr with machine SWL+affect
+fit <- lm(neu ~ Prediction1+ senti_all2, data=act_objective)
+summary(fit)
+#0.06 *
